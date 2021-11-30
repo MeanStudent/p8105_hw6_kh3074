@@ -1,0 +1,78 @@
+---
+title: "p8105_hw6_kh3074"
+author: "KaiYu He(kh3074)"
+date: "11/29/2021"
+output: github_document
+---
+
+# Loading packages
+```{r}
+library(tidyverse)
+library(modelr)
+```
+
+
+# Problem 1
+
+### Data Cleaning
+```{r}
+baby_birth = read_csv("data/birthweight.csv")
+# Firstly check missing values.
+colnames(baby_birth)[colSums(is.na(baby_birth)) > 0]
+# There are no missing values in the dataframe
+
+# Secondly change the class variables into factor
+baby_birth = 
+  baby_birth%>%
+  mutate(babysex = as.factor(case_when(
+    babysex == 2 ~ "female",
+    babysex == 1 ~ "male"
+  )))%>% 
+  mutate(frace = as.factor(case_when(
+    frace == 1 ~ "White",
+    frace == 2 ~ "Black",
+    frace == 3 ~ "Asian",
+    frace == 4 ~ "Puerto Rican",
+    frace == 8 ~ "Other"
+  )))%>%
+  mutate(mrace = as.factor(case_when(
+    mrace == 1 ~ "White",
+    mrace == 2 ~ "Black",
+    mrace == 3 ~ "Asian",
+    mrace == 4 ~ "Puerto Rican",
+    mrace == 8 ~ "Other"
+  )))%>%
+  mutate (malform = as.factor(case_when(
+    malform == 0 ~ "absent",
+    malform == 1 ~ "present"
+  )))
+baby_birth%>%
+  head(5)%>%
+  knitr::kable()
+```
+
+- In the Data Cleaning I checked for the missing value and mutate all the class variable form double into factors.
+
+### Propose a regression model for birthweight.
+```{r}
+#I think bhead and blength is the key factor of babies' weight so my linear factors would be bhead and blength
+fit = lm(bwt ~ bhead * blength ,data = baby_birth)
+fit %>%
+  broom::tidy() %>%
+  select(term, estimate, p.value) %>%
+  knitr::kable(digits = 4)
+summary(fit)
+```
+- model 2 length at birth and gestational age as predictors
+```{r}
+baby_birth
+fit1 = lm(bwt ~ blength + gaweeks, data = baby_birth)
+```
+
+- model 3 head circumference, length, sex, and all interactions 
+```{r}
+fit2 = lm(bwt ~ bhead * blength * babysex, data = baby_birth)
+```
+
+
+
