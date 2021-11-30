@@ -16,14 +16,14 @@ library(modelr)
 
 ### Data Cleaning
 ```{r}
-baby_birth = read_csv("data/birthweight.csv")
+baby_df = read_csv("data/birthweight.csv")
 # Firstly check missing values.
-colnames(baby_birth)[colSums(is.na(baby_birth)) > 0]
+colnames(baby_df)[colSums(is.na(baby_df)) > 0]
 # There are no missing values in the dataframe
 
 # Secondly change the class variables into factor
-baby_birth = 
-  baby_birth%>%
+baby_df = 
+  baby_df%>%
   mutate(babysex = as.factor(case_when(
     babysex == 2 ~ "female",
     babysex == 1 ~ "male"
@@ -46,7 +46,8 @@ baby_birth =
     malform == 0 ~ "absent",
     malform == 1 ~ "present"
   )))
-baby_birth%>%
+baby_df
+baby_df%>%
   head(5)%>%
   knitr::kable()
 ```
@@ -55,24 +56,115 @@ baby_birth%>%
 
 ### Propose a regression model for birthweight.
 ```{r}
-#I think bhead and blength is the key factor of babies' weight so my linear factors would be bhead and blength
-fit = lm(bwt ~ bhead * blength ,data = baby_birth)
-fit %>%
+#I think gestational and mother’s weight gain during pregnancy (pounds) are the key factors of babies' weight
+my_fit = lm(bwt ~ gaweeks*wtgain ,data = baby_df)
+my_fit %>%
   broom::tidy() %>%
   select(term, estimate, p.value) %>%
   knitr::kable(digits = 4)
-summary(fit)
+#plot the residuals against the fitted values
+baby_df%>%
+  add_predictions(my_fit)%>%
+  add_residuals(my_fit)%>%
+  ggplot(aes(x = pred ,y = resid))+
+  geom_violin()+
+  labs(title = "Residules Vs prediction")
 ```
-- model 2 length at birth and gestational age as predictors
+- I firstly draw plots about factors i'm interested in against the  to see 
+
+- Comparison in terms of the cross-validated prediction error
 ```{r}
-baby_birth
-fit1 = lm(bwt ~ blength + gaweeks, data = baby_birth)
+baby_cv_df = 
+  crossv_mc(baby_df,100)%>%
+  mutate(
+    my_fit = map(train, ~lm(bwt ~ gaweeks*wtgain, data = .x)),
+    fit1   = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    fit2   = map(train, ~lm(bwt ~ bhead * blength * babysex, data = as_tibble(.x)))) %>% 
+  mutate(
+    rmse_my_fit = map2_dbl(my_fit, test, ~rmse(model = .x, data = .y)),
+    rmse_fit1   = map2_dbl(fit1, test, ~rmse(model = .x, data = .y)),
+    rmse_fit2   = map2_dbl(fit2, test, ~rmse(model = .x, data = .y)))
+
+#Now Drawing plots to compare
+baby_cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()+
+  labs(title="comparesion of three models")
+```
+- Apparently my modle doesn't goes well, the best model is the third one with head circumference, length, sex, and all interactions.  
+
+# Problem 2
+
+### Load Data
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
 ```
 
-- model 3 head circumference, length, sex, and all interactions 
+### boostrapping
+
+- Checking rsquare  
 ```{r}
-fit2 = lm(bwt ~ bhead * blength * babysex, data = baby_birth)
+# r.squared
+set.seed(1234)
+r_squared_df = 
+  weather_df %>%
+  bootstrap(n = 5000) %>% 
+  mutate(models = map(strap,~lm(tmax ~ tmin,data = .x)),
+         results = map(models,broom::tidy),
+         r2 = map(models,broom::glance))%>%
+  select(-strap,-models)%>%
+  unnest(r2)
+
+r_squared_df
+
+r_squared_df%>%
+  ggplot(aes(x = r.squared))+
+  geom_density()
 ```
+- The distribution of r.squared is a bell shaped distribution with mean: `r mean(pull(r_squared_df,r.squared))`, and the standard deviation `r sd(pull(r_squared_df,r.squared))`, the 95% CI is [`r quantile((pull(r_squared_df,r.squared)),0.025)`,`r quantile((pull(r_squared_df,r.squared)),0.975)`]  
+
+- Checking logbeta
+```{r}
+set.seed(1234)
+logbeta_df = 
+  weather_df %>%
+  bootstrap(n = 5000) %>% 
+  mutate(models = map(strap,~lm(tmax ~ tmin,data = .x)),
+         results = map(models,broom::tidy))%>%
+  select(-strap,-models)%>%
+  unnest(results)%>%
+  select(.id,term,estimate)%>%
+  pivot_wider(names_from = term,values_from = estimate)%>%
+  janitor::clean_names()%>%
+  mutate(logbeta = log(intercept*tmin))
+
+# Draw distribution of log(beta0 * beta1)
+logbeta_df %>%
+  ggplot(aes(x = logbeta))+
+  geom_density()
+```
+
+- The distribution of $log(\beta_0 * \beta_1)$ is a bell shaped distribution with mean: `r mean(pull(logbeta_df,logbeta))`, and the standard deviation `r sd(pull(logbeta_df,logbeta))`, the 95% CI is [`r quantile((pull(logbeta_df,logbeta)),0.025)`,`r quantile((pull(logbeta_df,logbeta)),0.975)`]  
+
+
+
+
 
 
 
